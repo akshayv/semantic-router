@@ -322,8 +322,9 @@ vllm-sr-dev:
 		echo "  Build platform: $(VLLM_SR_BUILDPLATFORM)"; \
 		echo "  Dockerfile: $(VLLM_SR_DOCKERFILE)"; \
 		echo "  Image: $(VLLM_SR_IMAGE)"; \
+		echo "  TLS: place corporate root CA at build-certs/extra-ca.pem if cargo/go SSL fails"; \
 		echo ""; \
-		$(CONTAINER_RUNTIME) build $(VLLM_SR_BUILD_ARGS) -t $(VLLM_SR_IMAGE) -f $(VLLM_SR_DOCKERFILE) .; \
+		$(CONTAINER_RUNTIME) build $(VLLM_SR_BUILD_ARGS) -t $(VLLM_SR_IMAGE) -f $(VLLM_SR_DOCKERFILE) . || exit 1; \
 		echo ""; \
 		echo "Router image built: $(VLLM_SR_IMAGE)"; \
 		echo ""; \
@@ -340,7 +341,7 @@ vllm-sr-dev:
 		echo "  Dockerfile: $(VLLM_SR_DASHBOARD_DOCKERFILE)"; \
 		echo "  Image: $(VLLM_SR_DASHBOARD_IMAGE)"; \
 		echo ""; \
-		$(CONTAINER_RUNTIME) build $(VLLM_SR_BUILD_ARGS) -t $(VLLM_SR_DASHBOARD_IMAGE) -f $(VLLM_SR_DASHBOARD_DOCKERFILE) .; \
+		$(CONTAINER_RUNTIME) build $(VLLM_SR_BUILD_ARGS) -t $(VLLM_SR_DASHBOARD_IMAGE) -f $(VLLM_SR_DASHBOARD_DOCKERFILE) . || exit 1; \
 		echo ""; \
 		echo "Dashboard image built: $(VLLM_SR_DASHBOARD_IMAGE)"; \
 		echo ""; \
@@ -384,6 +385,19 @@ vllm-sr-build:
 	@echo "  Dockerfile: $(VLLM_SR_DOCKERFILE)"
 	@$(CONTAINER_RUNTIME) build $(VLLM_SR_BUILD_ARGS) -t $(VLLM_SR_IMAGE) -f $(VLLM_SR_DOCKERFILE) .
 	@echo "Image built: $(VLLM_SR_IMAGE)"
+
+VLLM_SR_DOCKERFILE_GO_ONLY ?= src/vllm-sr/Dockerfile.router-go-only
+VLLM_SR_PREBUILT_BINDINGS_DIR ?= .router-prebuilt
+
+vllm-sr-dev-go-only: ## Rebuild router image using Rust libs from an existing image (no cargo in Docker)
+vllm-sr-dev-go-only:
+	@$(LOG_TARGET)
+	@echo "Exporting Rust bindings from $(VLLM_SR_IMAGE) into $(VLLM_SR_PREBUILT_BINDINGS_DIR)/lib"
+	@chmod +x tools/docker/export-router-bindings.sh
+	@tools/docker/export-router-bindings.sh "$(VLLM_SR_IMAGE)" "$(PWD)/$(VLLM_SR_PREBUILT_BINDINGS_DIR)"
+	@echo "Building Go-only router image (skips cargo crates.io fetches)"
+	@$(CONTAINER_RUNTIME) build $(VLLM_SR_BUILD_ARGS) -t $(VLLM_SR_IMAGE) -f $(VLLM_SR_DOCKERFILE_GO_ONLY) . || exit 1
+	@echo "Router image built: $(VLLM_SR_IMAGE)"
 
 vllm-sr-router-build: ## Build vLLM Semantic Router router Docker image
 vllm-sr-router-build:

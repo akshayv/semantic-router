@@ -4,6 +4,11 @@ target/
 # Note: Cargo.lock should be committed for applications and workspace roots
 # Cargo.lock
 
+# Local corporate CA for Docker builds (see build-certs/README.md)
+build-certs/*.pem
+build-certs/*.crt
+.router-prebuilt/
+
 # Python
 *.pyc
 *.pyo

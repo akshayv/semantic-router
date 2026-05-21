@@ -1,0 +1,87 @@
+# Rebuild only the Go router binary using prebuilt Rust bindings.
+#
+#   tools/docker/export-router-bindings.sh ghcr.io/vllm-project/semantic-router/vllm-sr:latest
+#   docker build -f src/vllm-sr/Dockerfile.router-go-only -t ghcr.io/vllm-project/semantic-router/vllm-sr:latest .
+
+ARG TARGETARCH
+ARG BUILDPLATFORM
+ARG GO_RUNTIME_COMPAT_IMAGE=golang:1.24-bullseye
+
+FROM --platform=$BUILDPLATFORM ${GO_RUNTIME_COMPAT_IMAGE} AS go-builder
+ARG TARGETARCH
+WORKDIR /build
+
+COPY build-certs/ /tmp/build-certs/
+COPY tools/docker/install-extra-ca.sh /usr/local/bin/install-extra-ca.sh
+RUN chmod +x /usr/local/bin/install-extra-ca.sh && /usr/local/bin/install-extra-ca.sh
+
+COPY .router-prebuilt/lib/ /usr/local/lib/
+ENV LD_LIBRARY_PATH=/usr/local/lib
+
+COPY candle-binding/go.mod candle-binding/semantic-router.go /build/../candle-binding/
+COPY ml-binding/go.mod ml-binding/ml_binding.go /build/../ml-binding/
+RUN mkdir -p /build/../ml-binding/target/release /build/../nlp-binding/target/release
+COPY .router-prebuilt/lib/libml_semantic_router.so /build/../ml-binding/target/release/
+COPY nlp-binding/go.mod nlp-binding/nlp_binding.go nlp-binding/nlp_binding_mock.go /build/../nlp-binding/
+COPY .router-prebuilt/lib/libnlp_binding.so /build/../nlp-binding/target/release/
+
+COPY src/semantic-router/ .
+
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+      dpkg --add-architecture arm64 && \
+      apt-get update && apt-get install -y \
+        gcc-aarch64-linux-gnu \
+        g++-aarch64-linux-gnu \
+        libssl-dev:arm64 && \
+      rm -rf /var/lib/apt/lists/* && \
+      CC=aarch64-linux-gnu-gcc \
+      CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
+      CGO_LDFLAGS="-L/usr/lib/aarch64-linux-gnu -lssl -lcrypto" \
+      go build -buildvcs=false -ldflags="-w -s" -o router ./cmd; \
+    else \
+      CGO_ENABLED=1 go build -buildvcs=false -ldflags="-w -s" -o router ./cmd; \
+    fi
+
+FROM debian:bookworm-slim
+
+ENV VIRTUAL_ENV=/opt/vllm-sr-venv
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        libssl3 \
+        python3 \
+        python3-pip \
+        python3-venv \
+        python3-yaml; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv "${VIRTUAL_ENV}" && \
+    "${VIRTUAL_ENV}/bin/pip" install --no-cache-dir --upgrade pip && \
+    "${VIRTUAL_ENV}/bin/pip" install --no-cache-dir 'huggingface_hub[cli]==1.5.0'
+
+COPY --from=go-builder /build/router /usr/local/bin/router
+COPY --from=go-builder /usr/local/lib/libcandle_semantic_router.so /usr/local/lib/
+COPY --from=go-builder /usr/local/lib/libml_semantic_router.so /usr/local/lib/
+COPY --from=go-builder /usr/local/lib/libnlp_binding.so /usr/local/lib/
+
+ENV LD_LIBRARY_PATH=/usr/local/lib
+
+WORKDIR /app
+RUN mkdir -p /app /app/.vllm-sr /app/config /app/models
+
+COPY config/knowledge_bases/ /app/config/knowledge_bases/
+COPY src/vllm-sr/start-router.sh /app/start-router.sh
+RUN chmod +x /app/start-router.sh
+
+EXPOSE 50051 8080 9190
+
+VOLUME ["/app/models"]
+
+ENTRYPOINT ["/app/start-router.sh"]
+CMD ["/app/config.yaml"]

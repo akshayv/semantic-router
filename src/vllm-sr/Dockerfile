@@ -19,6 +19,10 @@ ARG GIT_SSL_NO_VERIFY
 WORKDIR /build
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 
+COPY build-certs/ /tmp/build-certs/
+COPY tools/docker/install-extra-ca.sh /usr/local/bin/install-extra-ca.sh
+RUN chmod +x /usr/local/bin/install-extra-ca.sh && /usr/local/bin/install-extra-ca.sh
+
 # Install cross-compilation toolchain and OpenSSL for arm64 (needed by hf-hub -> openssl-sys, esaxx-rs -> g++)
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
       dpkg --add-architecture arm64 && \
@@ -93,6 +97,10 @@ ARG GIT_SSL_NO_VERIFY
 WORKDIR /build
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 
+COPY build-certs/ /tmp/build-certs/
+COPY tools/docker/install-extra-ca.sh /usr/local/bin/install-extra-ca.sh
+RUN chmod +x /usr/local/bin/install-extra-ca.sh && /usr/local/bin/install-extra-ca.sh
+
 # Reuse cross-compilation toolchain setup (same as rust-builder)
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
       dpkg --add-architecture arm64 && \
@@ -152,6 +160,10 @@ ARG GIT_SSL_NO_VERIFY
 WORKDIR /build
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 
+COPY build-certs/ /tmp/build-certs/
+COPY tools/docker/install-extra-ca.sh /usr/local/bin/install-extra-ca.sh
+RUN chmod +x /usr/local/bin/install-extra-ca.sh && /usr/local/bin/install-extra-ca.sh
+
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
       dpkg --add-architecture arm64 && \
       apt-get update && apt-get install -y \
@@ -201,6 +213,10 @@ RUN mkdir -p /build/out && \
 FROM --platform=$BUILDPLATFORM ${GO_RUNTIME_COMPAT_IMAGE} AS go-builder
 ARG TARGETARCH
 WORKDIR /build
+
+COPY build-certs/ /tmp/build-certs/
+COPY tools/docker/install-extra-ca.sh /usr/local/bin/install-extra-ca.sh
+RUN chmod +x /usr/local/bin/install-extra-ca.sh && /usr/local/bin/install-extra-ca.sh
 
 # Copy Rust libraries from all builders
 COPY --from=rust-builder /build/out/ /usr/local/lib/
